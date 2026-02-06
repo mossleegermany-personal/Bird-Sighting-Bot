@@ -55,6 +55,16 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_8DB39DD4249044F4824381DB902341FF }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_34EFA27FCCE340688DB5DF5940F0DDDD }}
 
+      - name: Set App Settings
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: 'bird-sighting-bot'
+          app-settings-json: |
+            [
+              { "name": "TELEGRAM_BOT_TOKEN", "value": "${{ secrets.TELEGRAM_BOT_TOKEN }}", "slotSetting": false },
+              { "name": "EBIRD_API_KEY", "value": "${{ secrets.EBIRD_API_KEY }}", "slotSetting": false }
+            ]
+
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3

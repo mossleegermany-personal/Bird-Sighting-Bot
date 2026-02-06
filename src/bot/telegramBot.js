@@ -3,8 +3,18 @@ const EBirdService = require('../services/ebirdService');
 const { toRegionCode, getPopularLocations } = require('../utils/regionCodes');
 
 class BirdBot {
-  constructor(telegramToken, ebirdApiKey) {
-    this.bot = new TelegramBot(telegramToken, { polling: true });
+  constructor(telegramToken, ebirdApiKey, options = {}) {
+    const useWebhook = options.useWebhook || false;
+    
+    // Configure bot based on mode
+    if (useWebhook) {
+      // Webhook mode for production (Azure)
+      this.bot = new TelegramBot(telegramToken, { webHook: true });
+    } else {
+      // Polling mode for local development
+      this.bot = new TelegramBot(telegramToken, { polling: true });
+    }
+    
     this.ebirdService = new EBirdService(ebirdApiKey);
     this.userStates = new Map(); // Track user conversation states
     this.observationsCache = new Map(); // Cache observations for pagination
@@ -12,6 +22,11 @@ class BirdBot {
     
     this.setupCommands();
     this.setupHandlers();
+  }
+
+  // Process incoming webhook updates
+  processUpdate(update) {
+    this.bot.processUpdate(update);
   }
 
   setupCommands() {

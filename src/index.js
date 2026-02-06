@@ -7,6 +7,8 @@ const EBirdService = require('./services/ebirdService');
 const PORT = process.env.PORT || 3000;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const EBIRD_API_KEY = process.env.EBIRD_API_KEY;
+const WEBSITE_HOSTNAME = process.env.WEBSITE_HOSTNAME; // Azure provides this
+const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true' || !!WEBSITE_HOSTNAME;
 
 // Validate required environment variables
 if (!EBIRD_API_KEY) {
@@ -247,19 +249,51 @@ app.use((err, req, res, next) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`\n🚀 Bird Sighting Bot Server running on port ${PORT}`);
   console.log(`   API available at http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/`);
+  console.log(`   Mode: ${USE_WEBHOOK ? 'Webhook (Production)' : 'Polling (Development)'}`);
   console.log('');
+});
+
+// Store bot instance globally for webhook endpoint
+let birdBot = null;
+
+// Webhook endpoint for Telegram
+app.post(`/bot${TELEGRAM_BOT_TOKEN}`, (req, res) => {
+  if (birdBot) {
+    birdBot.processUpdate(req.body);
+  }
+  res.sendStatus(200);
 });
 
 // Initialize Telegram bot if token is configured
 if (TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here') {
   try {
-    const birdBot = new BirdBot(TELEGRAM_BOT_TOKEN, EBIRD_API_KEY);
-    console.log('🤖 Telegram Bot started successfully!');
-    console.log('   Send /start to your bot to begin');
+    birdBot = new BirdBot(TELEGRAM_BOT_TOKEN, EBIRD_API_KEY, { useWebhook: USE_WEBHOOK });
+    
+    if (USE_WEBHOOK) {
+      // Set webhook URL for production
+      const webhookUrl = WEBSITE_HOSTNAME 
+        ? `https://${WEBSITE_HOSTNAME}/bot${TELEGRAM_BOT_TOKEN}`
+        : `https://your-app.azurewebsites.net/bot${TELEGRAM_BOT_TOKEN}`;
+      
+      birdBot.getBot().setWebHook(webhookUrl).then(() => {
+        console.log('🤖 Telegram Bot started in WEBHOOK mode!');
+        console.log(`   Webhook URL: ${webhookUrl.replace(TELEGRAM_BOT_TOKEN, '***')}`);
+      }).catch(err => {
+        console.error('❌ Failed to set webhook:', err.message);
+      });
+    } else {
+      // Delete webhook for local polling mode
+      birdBot.getBot().deleteWebHook().then(() => {
+        console.log('🤖 Telegram Bot started in POLLING mode!');
+        console.log('   Send /start to your bot to begin');
+      }).catch(err => {
+        console.error('❌ Failed to delete webhook:', err.message);
+      });
+    }
   } catch (error) {
     console.error('❌ Failed to start Telegram bot:', error.message);
   }
