@@ -126,7 +126,7 @@ Use /sightings to see ALL birds in an area
 
 *By Specific Place:*
 • \`/sightings Botanic Gardens, Singapore\`
-• \`/sightings Central Park, New York\`
+• \`/sightings Central Park, USA\`
 
 💡 Use /hotspots to discover location names
 
@@ -181,6 +181,7 @@ ${getPopularLocations()}`;
 
   /**
    * Handle place search (e.g., "Botanic Gardens, Singapore")
+   * Format: Location, Country
    */
   async handlePlaceSearch(chatId, input, type) {
     const parts = input.split(',').map(p => p.trim());
@@ -189,7 +190,7 @@ ${getPopularLocations()}`;
 
     if (!placeName || !regionInput) {
       await this.sendMessage(chatId, 
-        `❌ Please provide both place and region.\n\n*Format:* \`Place Name, Region\`\n*Example:* \`Botanic Gardens, Singapore\``
+        `❌ Please provide both place and region.\n\n*Format:* \`Location, Country\`\n*Example:* \`Botanic Gardens, Singapore\``
       );
       return;
     }
@@ -357,7 +358,7 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
       dateLabel = dateFilter?.label || 'Last 14 Days';
       
       const locationLabel = isHotspot ? '📍 Hotspot' : '🗺️ Region';
-      await this.sendMessage(chatId, `🔍 Searching for sightings in *${displayName}*\n${locationLabel}: ${regionCode}\n📅 ${dateLabel} (00:00 - 23:59)...`);
+      await this.sendMessage(chatId, `🔍 Searching for sightings in *${displayName}*\n${locationLabel}: ${regionCode}\n📅 ${dateLabel}...`);
       
       try {
         // Use different API method for hotspots vs regions
@@ -434,26 +435,38 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
     message += `📊 Showing ${startIdx + 1}-${endIdx} of ${observations.length}\n`;
     message += `📄 Page ${page + 1} of ${totalPages}\n\n`;
 
-    pageObservations.forEach((obs, index) => {
-      message += `${startIdx + index + 1}. ${this.ebirdService.formatObservation(obs)}\n`;
+    pageObservations.forEach((obs) => {
+      message += `${this.ebirdService.formatObservation(obs)}\n`;
     });
 
     // Create pagination buttons
     const buttons = [];
-    const row = [];
     
+    // First row: First, Previous, Page Info, Next, Last
+    const navRow = [];
+    
+    // First page button (only show if not on first page)
     if (page > 0) {
-      row.push({ text: '⬅️ Previous', callback_data: `page_${type}_${page - 1}` });
+      navRow.push({ text: '⏮️ First', callback_data: `page_${type}_0` });
+      navRow.push({ text: '⬅️ Prev', callback_data: `page_${type}_${page - 1}` });
     }
     
-    row.push({ text: `${page + 1}/${totalPages}`, callback_data: 'page_info' });
+    navRow.push({ text: `${page + 1}/${totalPages}`, callback_data: 'page_info' });
     
+    // Next and Last page buttons (only show if not on last page)
     if (page < totalPages - 1) {
-      row.push({ text: 'Next ➡️', callback_data: `page_${type}_${page + 1}` });
+      navRow.push({ text: 'Next ➡️', callback_data: `page_${type}_${page + 1}` });
+      navRow.push({ text: 'Last ⏭️', callback_data: `page_${type}_${totalPages - 1}` });
     }
     
-    // Add share button on second row (shares complete list)
-    buttons.push(row);
+    buttons.push(navRow);
+    
+    // Second row: Jump to page (only show if more than 2 pages)
+    if (totalPages > 2) {
+      buttons.push([{ text: '🔢 Jump to Page', callback_data: `jump_${type}` }]);
+    }
+    
+    // Third row: Share button
     buttons.push([{ text: '📤 Share All', callback_data: `share_${type}` }]);
 
     const replyMarkup = {
@@ -506,9 +519,9 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
     header += `*${title}*\n`;
     header += `📊 Total: ${observations.length} sightings\n\n`;
     
-    // Build all observation lines
-    const allLines = observations.map((obs, index) => 
-      `${index + 1}. ${this.ebirdService.formatObservation(obs)}`
+    // Build all observation lines (without numbering)
+    const allLines = observations.map((obs) => 
+      this.ebirdService.formatObservation(obs)
     );
     
     // Split into multiple messages if needed
@@ -589,7 +602,7 @@ You can type:
       dateLabel = dateFilter?.label || 'Last 14 Days';
       
       const locationLabel = isHotspot ? '📍 Hotspot' : '🗺️ Region';
-      await this.sendMessage(chatId, `🔍 Searching for notable sightings in *${displayName}*\n${locationLabel}: ${regionCode}\n📅 ${dateLabel} (00:00 - 23:59)...`);
+      await this.sendMessage(chatId, `🔍 Searching for notable sightings in *${displayName}*\n${locationLabel}: ${regionCode}\n📅 ${dateLabel}...`);
       
       try {
         // Use different API method for hotspots vs regions
@@ -1040,7 +1053,26 @@ Region codes are used to specify geographic areas for bird sightings.
       return;
     }
 
-    // Handle share button - send complete list as forwardable messages
+    // Handle jump to page
+    if (data.startsWith('jump_')) {
+      const type = data.split('_')[1];
+      const cacheKey = `${type}_${chatId}`;
+      const cached = this.observationsCache.get(cacheKey);
+      
+      if (cached) {
+        const totalPages = Math.ceil(cached.observations.length / this.ITEMS_PER_PAGE);
+        this.userStates.set(chatId, { 
+          action: 'awaiting_jump_page', 
+          type,
+          totalPages,
+          messageId
+        });
+        await this.sendMessage(chatId, `🔢 *Enter a page number (1-${totalPages}):*`);
+      }
+      return;
+    }
+
+    // Handle share button - show forward options
     if (data.startsWith('share_')) {
       const parts = data.split('_');
       const type = parts[1];
@@ -1049,10 +1081,41 @@ Region codes are used to specify geographic areas for bird sightings.
       const cached = this.observationsCache.get(cacheKey);
       
       if (cached) {
+        // Show share options
+        const shareMessage = `📤 *Share Bird Sightings*\n\nHow would you like to share?\n\nOnce I send the list, you can:\n• Long-press the message → Forward\n• Or tap the forward icon ↗️`;
+        
+        const shareButtons = [
+          [{ text: '📋 Generate Shareable List', callback_data: `generate_share_${type}` }],
+          [{ text: '❌ Cancel', callback_data: 'cancel_share' }]
+        ];
+        
+        await this.sendMessage(chatId, shareMessage, {
+          reply_markup: { inline_keyboard: shareButtons }
+        });
+      } else {
+        await this.sendMessage(chatId, '❌ Unable to share. Please perform a new search.');
+      }
+      return;
+    }
+
+    // Handle generate shareable list
+    if (data.startsWith('generate_share_')) {
+      const type = data.replace('generate_share_', '');
+      const cacheKey = `${type}_${chatId}`;
+      const cached = this.observationsCache.get(cacheKey);
+      
+      if (cached) {
+        await this.sendMessage(chatId, '📤 *Generating shareable list...*\n\n_Long-press or use the forward button ↗️ to share these messages:_');
         await this.sendForwardableMessage(chatId, cached.observations, cached.displayName, type);
       } else {
         await this.sendMessage(chatId, '❌ Unable to share. Please perform a new search.');
       }
+      return;
+    }
+
+    // Handle cancel share
+    if (data === 'cancel_share') {
+      await this.sendMessage(chatId, '✅ Share cancelled.');
       return;
     }
 
@@ -1320,6 +1383,20 @@ _(from 00:00 of start date to 23:59 of end date)_
       case 'awaiting_species_location':
         // User is entering a location after finding a species - show date selection
         await this.showSpeciesDateSelection(chatId, text, userState.species);
+        break;
+      case 'awaiting_jump_page':
+        // User is entering a page number for pagination
+        this.userStates.delete(chatId);
+        const pageNum = parseInt(text);
+        if (isNaN(pageNum) || pageNum < 1 || pageNum > userState.totalPages) {
+          await this.sendMessage(chatId, `❌ Invalid page number. Please enter a number between 1 and ${userState.totalPages}.`);
+        } else {
+          const cacheKey = `${userState.type}_${chatId}`;
+          const cached = this.observationsCache.get(cacheKey);
+          if (cached) {
+            await this.sendPaginatedObservations(chatId, cached.observations, cached.displayName, userState.type, pageNum - 1);
+          }
+        }
         break;
     }
   }

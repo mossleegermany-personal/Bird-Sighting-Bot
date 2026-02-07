@@ -476,8 +476,8 @@ class EBirdService {
     formatted += `━━━━━━━━━━━━━━━━━━━━\n`;
     formatted += `📊 Total: ${uniqueObservations.length} observations\n\n`;
 
-    uniqueObservations.forEach((obs, index) => {
-      const entry = `${index + 1}. ${this.formatObservation(obs)}\n`;
+    uniqueObservations.forEach((obs) => {
+      const entry = `${this.formatObservation(obs)}\n`;
       
       // If adding this entry exceeds ~3500 chars, start a new message
       if (formatted.length + entry.length > 3500) {
