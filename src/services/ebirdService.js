@@ -234,6 +234,138 @@ class EBirdService {
   }
 
   /**
+   * Search hotspots by name within a region
+   * Uses fuzzy matching to find locations
+   * @param {string} regionCode - Country, subnational1, or subnational2 code
+   * @param {string} searchQuery - Name to search for (partial match)
+   * @param {number} maxResults - Maximum number of results to return
+   * @returns {Promise<Array>} Array of matching hotspots
+   */
+  async searchHotspotsByName(regionCode, searchQuery, maxResults = 10) {
+    try {
+      const hotspots = await this.getHotspots(regionCode);
+      
+      if (!hotspots || hotspots.length === 0) {
+        return [];
+      }
+      
+      // Normalize search query - remove common words and clean up
+      const searchLower = searchQuery.toLowerCase().trim();
+      const searchWords = searchLower
+        .replace(/['']/g, '') // Remove apostrophes
+        .split(/\s+/)
+        .filter(word => !['the', 'a', 'an', 'at', 'in', 'park', 'garden', 'gardens'].includes(word));
+      
+      // Filter hotspots by fuzzy name match
+      const matches = hotspots.filter(hotspot => {
+        const locName = (hotspot.locName || '').toLowerCase();
+        const locNameNormalized = locName.replace(/['']/g, '');
+        
+        // Check if the full search query is in the name
+        if (locNameNormalized.includes(searchLower)) {
+          return true;
+        }
+        
+        // Check if all significant search words are in the name
+        if (searchWords.length > 0) {
+          const matchedWords = searchWords.filter(word => 
+            locNameNormalized.includes(word)
+          );
+          // Match if at least half of the search words are found
+          return matchedWords.length >= Math.ceil(searchWords.length / 2);
+        }
+        
+        return false;
+      });
+      
+      // Score and sort matches
+      matches.sort((a, b) => {
+        const aName = (a.locName || '').toLowerCase();
+        const bName = (b.locName || '').toLowerCase();
+        
+        // Exact match scores highest
+        const aExact = aName === searchLower;
+        const bExact = bName === searchLower;
+        if (aExact && !bExact) return -1;
+        if (!aExact && bExact) return 1;
+        
+        // Starts with query scores next
+        const aStarts = aName.startsWith(searchLower);
+        const bStarts = bName.startsWith(searchLower);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        
+        // Contains full query
+        const aContains = aName.includes(searchLower);
+        const bContains = bName.includes(searchLower);
+        if (aContains && !bContains) return -1;
+        if (!aContains && bContains) return 1;
+        
+        // Sort by species count (more species = more popular)
+        const aSpecies = a.numSpeciesAllTime || 0;
+        const bSpecies = b.numSpeciesAllTime || 0;
+        return bSpecies - aSpecies;
+      });
+      
+      return matches.slice(0, maxResults);
+    } catch (error) {
+      console.error('Error searching hotspots by name:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get popular hotspots in a region sorted by species count
+   * @param {string} regionCode - Region code
+   * @param {number} limit - Number of hotspots to return
+   * @returns {Promise<Array>} Array of popular hotspots
+   */
+  async getPopularHotspots(regionCode, limit = 10) {
+    try {
+      const hotspots = await this.getHotspots(regionCode);
+      
+      if (!hotspots || hotspots.length === 0) {
+        return [];
+      }
+      
+      // Sort by species count (most species first)
+      const sorted = hotspots.sort((a, b) => {
+        const aSpecies = a.numSpeciesAllTime || 0;
+        const bSpecies = b.numSpeciesAllTime || 0;
+        return bSpecies - aSpecies;
+      });
+      
+      return sorted.slice(0, limit);
+    } catch (error) {
+      console.error('Error fetching popular hotspots:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent observations at a specific hotspot location
+   * @param {string} locId - The eBird location ID (e.g., 'L123456')
+   * @param {number} back - Number of days back to fetch (1-30, default 14)
+   * @param {number} maxResults - Maximum number of results
+   * @returns {Promise<Array>} Array of observations at the hotspot
+   */
+  async getHotspotObservations(locId, back = 14, maxResults = 100) {
+    try {
+      console.log(`Fetching observations for hotspot: ${locId}`);
+      const response = await this.client.get(`/data/obs/${locId}/recent`, {
+        params: {
+          back,
+          maxResults
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching hotspot observations:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get nearby hotspots based on coordinates
    * @param {number} lat - Latitude
    * @param {number} lng - Longitude
@@ -288,6 +420,17 @@ class EBirdService {
     formatted += `📍 ${obs.locName}\n`;
     formatted += `🗺️ [📍 View on Google Maps](${mapsLink})\n`;
     formatted += `📅 ${this.formatDate(obs.obsDt)}\n`;
+    
+    // Add reporter name if available
+    if (obs.userDisplayName) {
+      formatted += `👤 Reported by: ${obs.userDisplayName}\n`;
+    }
+    
+    // Add count if available and more than 1
+    if (obs.howMany && obs.howMany > 1) {
+      formatted += `🔢 Count: ${obs.howMany}\n`;
+    }
+    
     return formatted;
   }
 
