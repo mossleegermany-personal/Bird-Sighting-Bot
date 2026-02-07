@@ -435,8 +435,8 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
     message += `📊 Showing ${startIdx + 1}-${endIdx} of ${observations.length}\n`;
     message += `📄 Page ${page + 1} of ${totalPages}\n\n`;
 
-    pageObservations.forEach((obs) => {
-      message += `${this.ebirdService.formatObservation(obs)}\n`;
+    pageObservations.forEach((obs, index) => {
+      message += `${startIdx + index + 1}. ${this.ebirdService.formatObservation(obs)}\n`;
     });
 
     // Create pagination buttons
@@ -519,9 +519,9 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
     header += `*${title}*\n`;
     header += `📊 Total: ${observations.length} sightings\n\n`;
     
-    // Build all observation lines (without numbering)
-    const allLines = observations.map((obs) => 
-      this.ebirdService.formatObservation(obs)
+    // Build all observation lines
+    const allLines = observations.map((obs, index) => 
+      `${index + 1}. ${this.ebirdService.formatObservation(obs)}`
     );
     
     // Split into multiple messages if needed
