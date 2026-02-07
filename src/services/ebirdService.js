@@ -435,6 +435,28 @@ class EBirdService {
   }
 
   /**
+   * Remove duplicate observations based on species, location, and date
+   * @param {Array} observations - Array of observation objects
+   * @returns {Array} Deduplicated array of observations
+   */
+  deduplicateObservations(observations) {
+    if (!observations || observations.length === 0) {
+      return [];
+    }
+
+    const seen = new Set();
+    return observations.filter(obs => {
+      // Create a unique key based on species, location, and date
+      const key = `${obs.speciesCode || obs.comName}-${obs.locId || obs.locName}-${obs.obsDt}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /**
    * Format multiple observations for display
    * @param {Array} observations - Array of observation objects
    * @param {string} title - Title for the list
@@ -445,13 +467,16 @@ class EBirdService {
       return '❌ No observations found for this location.';
     }
 
+    // Remove duplicate entries
+    const uniqueObservations = this.deduplicateObservations(observations);
+
     // Split into chunks to avoid Telegram message length limits
     const messages = [];
     let formatted = `*${title}*\n`;
     formatted += `━━━━━━━━━━━━━━━━━━━━\n`;
-    formatted += `📊 Total: ${observations.length} observations\n\n`;
+    formatted += `📊 Total: ${uniqueObservations.length} observations\n\n`;
 
-    observations.forEach((obs, index) => {
+    uniqueObservations.forEach((obs, index) => {
       const entry = `${index + 1}. ${this.formatObservation(obs)}\n`;
       
       // If adding this entry exceeds ~3500 chars, start a new message
@@ -467,8 +492,6 @@ class EBirdService {
     }
 
     return messages;
-
-    return formatted;
   }
 }
 
