@@ -1,11 +1,26 @@
 /**
  * Date utilities for bird sighting date filtering
+ * All times are in Singapore Standard Time (GMT+8)
  */
 
+const SINGAPORE_TIMEZONE = 'Asia/Singapore';
+const SINGAPORE_OFFSET_HOURS = 8;
+
 /**
- * Get start of day (00:00:00) for a given date
+ * Get current time in Singapore timezone
+ * @returns {Date} Current time adjusted to Singapore timezone
+ */
+function getSingaporeNow() {
+  const now = new Date();
+  // Get UTC time and add Singapore offset
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + (SINGAPORE_OFFSET_HOURS * 60 * 60 * 1000));
+}
+
+/**
+ * Get start of day (00:00:00) for a given date in Singapore timezone
  * @param {Date} date - The date
- * @returns {Date} Start of the day
+ * @returns {Date} Start of the day in SST
  */
 function getStartOfDay(date) {
   const d = new Date(date);
@@ -14,9 +29,9 @@ function getStartOfDay(date) {
 }
 
 /**
- * Get end of day (23:59:59) for a given date
+ * Get end of day (23:59:59) for a given date in Singapore timezone
  * @param {Date} date - The date
- * @returns {Date} End of the day
+ * @returns {Date} End of the day in 
  */
 function getEndOfDay(date) {
   const d = new Date(date);
@@ -25,24 +40,38 @@ function getEndOfDay(date) {
 }
 
 /**
- * Get date range for quick presets
+ * Format time in Singapore timezone (HH:MM)
+ * @param {Date} date - The date
+ * @returns {string} Time string in SGT
+ */
+function formatSingaporeTime(date) {
+  return date.toLocaleTimeString('en-SG', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: false,
+    timeZone: SINGAPORE_TIMEZONE
+  });
+}
+
+/**
+ * Get date range for quick presets (Singapore Standard Time GMT+8)
  * @param {string} preset - Preset name: 'today', 'yesterday', 'last_week', 'last_month', 'last_14_days'
  * @returns {Object} { startDate, endDate, backDays, label }
  */
 function getDatePreset(preset) {
-  const now = new Date();
+  const now = getSingaporeNow();
   const today = getStartOfDay(now);
   
-  // Format current time for display
-  const currentTime = now.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false });
+  // Format current time in Singapore timezone for display
+  const currentTime = formatSingaporeTime(now);
   
   switch (preset) {
     case 'today':
       return {
         startDate: getStartOfDay(today),
-        endDate: now, // Use current time, not end of day
+        endDate: now, // Use current Singapore time, not end of day
         backDays: 1,
-        label: `Today (until ${currentTime})`
+        label: `Today (until ${currentTime} )`
       };
     
     case 'yesterday':
@@ -50,9 +79,9 @@ function getDatePreset(preset) {
       yesterday.setDate(yesterday.getDate() - 1);
       return {
         startDate: getStartOfDay(yesterday),
-        endDate: getEndOfDay(yesterday),
+        endDate: now, // From yesterday to current Singapore time today
         backDays: 2, // Need to go back 2 days to include yesterday
-        label: 'Yesterday'
+        label: `Yesterday to Now (until ${currentTime} SST)`
       };
     
     case 'last_3_days':
@@ -60,9 +89,9 @@ function getDatePreset(preset) {
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
       return {
         startDate: getStartOfDay(threeDaysAgo),
-        endDate: now, // Use current time
+        endDate: now, // Use current Singapore time
         backDays: 3,
-        label: `Last 3 Days (until ${currentTime})`
+        label: `Last 3 Days (until ${currentTime} SST)`
       };
     
     case 'last_week':
@@ -70,9 +99,9 @@ function getDatePreset(preset) {
       weekAgo.setDate(weekAgo.getDate() - 6);
       return {
         startDate: getStartOfDay(weekAgo),
-        endDate: now, // Use current time
+        endDate: now, // Use current Singapore time
         backDays: 7,
-        label: `Last Week (until ${currentTime})`
+        label: `Last Week (until ${currentTime} SGT)`
       };
     
     case 'last_14_days':
@@ -80,9 +109,9 @@ function getDatePreset(preset) {
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 13);
       return {
         startDate: getStartOfDay(twoWeeksAgo),
-        endDate: now, // Use current time
+        endDate: now, // Use current Singapore time
         backDays: 14,
-        label: `Last 14 Days (until ${currentTime})`
+        label: `Last 14 Days (until ${currentTime} SGT)`
       };
     
     case 'last_month':
@@ -90,17 +119,17 @@ function getDatePreset(preset) {
       monthAgo.setDate(monthAgo.getDate() - 29);
       return {
         startDate: getStartOfDay(monthAgo),
-        endDate: now, // Use current time
+        endDate: now, // Use current Singapore time
         backDays: 30,
-        label: `Last Month (until ${currentTime})`
+        label: `Last Month (until ${currentTime} SGT)`
       };
     
     default:
       return {
         startDate: getStartOfDay(new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000)),
-        endDate: now, // Use current time
+        endDate: now, // Use current Singapore time
         backDays: 14,
-        label: `Last 14 Days (until ${currentTime})`
+        label: `Last 14 Days (until ${currentTime} SGT)`
       };
   }
 }
@@ -152,12 +181,12 @@ function daysBetween(startDate, endDate) {
 }
 
 /**
- * Calculate how many days back from today a date is
+ * Calculate how many days back from today a date is (Singapore timezone)
  * @param {Date} date - The date
  * @returns {number} Days back from today
  */
 function daysBackFromToday(date) {
-  const today = getStartOfDay(new Date());
+  const today = getStartOfDay(getSingaporeNow());
   const targetDate = getStartOfDay(date);
   const oneDay = 24 * 60 * 60 * 1000;
   return Math.max(1, Math.ceil((today - targetDate) / oneDay) + 1);
@@ -223,7 +252,7 @@ function filterObservationsByDateRange(observations, startDate, endDate) {
 }
 
 /**
- * Get a human-readable description of the date range
+ * Get a human-readable description of the date range (Singapore timezone)
  * @param {Date} startDate - Start date
  * @param {Date} endDate - End date
  * @returns {string} Description
@@ -233,10 +262,10 @@ function getDateRangeDescription(startDate, endDate) {
   const endStr = formatDateDDMMYYYY(endDate);
   
   if (startStr === endStr) {
-    return startStr;
+    return `${startStr} (SGT)`;
   }
   
-  return `${startStr} to ${endStr}`;
+  return `${startStr} to ${endStr} (SGT)`;
 }
 
 module.exports = {
@@ -250,5 +279,7 @@ module.exports = {
   isDateInRange,
   parseEBirdDate,
   filterObservationsByDateRange,
-  getDateRangeDescription
+  getDateRangeDescription,
+  getSingaporeNow,
+  formatSingaporeTime
 };
