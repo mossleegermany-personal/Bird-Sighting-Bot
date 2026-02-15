@@ -3,12 +3,21 @@ const express = require('express');
 const BirdBot = require('./bot/telegramBot');
 const EBirdService = require('./services/ebirdService');
 
+// ── Global crash recovery ───────────────────────────────────
+// Keep the process alive on unexpected errors so the bot stays online.
+process.on('uncaughtException', (err) => {
+  console.error('‼️  Uncaught exception (process kept alive):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('‼️  Unhandled rejection (process kept alive):', reason);
+});
+
 // Configuration
 const PORT = process.env.PORT || 3000;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const EBIRD_API_KEY = process.env.EBIRD_API_KEY;
 const WEBSITE_HOSTNAME = process.env.WEBSITE_HOSTNAME; // Azure provides this
-const USE_WEBHOOK = process.env.USE_WEBHOOK === 'true' || !!WEBSITE_HOSTNAME;
+const USE_WEBHOOK = !!WEBSITE_HOSTNAME; // Webhook on Azure, polling locally
 
 // Validate required environment variables
 if (!EBIRD_API_KEY) {
@@ -253,12 +262,33 @@ const server = app.listen(PORT, async () => {
   console.log(`\n🚀 Bird Sighting Bot Server running on port ${PORT}`);
   console.log(`   API available at http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/`);
-  console.log(`   Mode: ${USE_WEBHOOK ? 'Webhook (Production)' : 'Polling (Development)'}`);
+  console.log(`   Mode: ${USE_WEBHOOK ? 'Webhook (Azure)' : 'Polling (Local)'}`);
   console.log('');
 });
 
 // Store bot instance globally for webhook endpoint
 let birdBot = null;
+
+// --- Keep-alive self-ping (prevents Azure Free/Basic tier from sleeping) ---
+const KEEP_ALIVE_INTERVAL = 4 * 60 * 1000; // ping every 4 minutes
+function startKeepAlive() {
+  const url = WEBSITE_HOSTNAME
+    ? `https://${WEBSITE_HOSTNAME}/`
+    : `http://localhost:${PORT}/`;
+  
+  setInterval(async () => {
+    try {
+      const http = url.startsWith('https') ? require('https') : require('http');
+      http.get(url, (res) => {
+        // consume response to free memory
+        res.resume();
+      });
+    } catch (_) { /* ignore ping errors */ }
+  }, KEEP_ALIVE_INTERVAL);
+  
+  console.log(`🏓 Keep-alive ping started (every ${KEEP_ALIVE_INTERVAL / 1000}s)`);
+}
+startKeepAlive();
 
 // Webhook endpoint for Telegram
 app.post(`/bot${TELEGRAM_BOT_TOKEN}`, (req, res) => {
@@ -273,11 +303,12 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here')
   try {
     birdBot = new BirdBot(TELEGRAM_BOT_TOKEN, EBIRD_API_KEY, { useWebhook: USE_WEBHOOK });
     
+    // Preload taxonomy cache in background so first /species search is instant
+    ebirdService.preloadTaxonomy();
+    
     if (USE_WEBHOOK) {
-      // Set webhook URL for production
-      const webhookUrl = WEBSITE_HOSTNAME 
-        ? `https://${WEBSITE_HOSTNAME}/bot${TELEGRAM_BOT_TOKEN}`
-        : `https://your-app.azurewebsites.net/bot${TELEGRAM_BOT_TOKEN}`;
+      // Azure production — set webhook
+      const webhookUrl = `https://${WEBSITE_HOSTNAME}/bot${TELEGRAM_BOT_TOKEN}`;
       
       birdBot.getBot().setWebHook(webhookUrl).then(() => {
         console.log('🤖 Telegram Bot started in WEBHOOK mode!');
@@ -286,7 +317,7 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here')
         console.error('❌ Failed to set webhook:', err.message);
       });
     } else {
-      // Delete webhook for local polling mode
+      // Local development — delete any existing webhook so polling works
       birdBot.getBot().deleteWebHook().then(() => {
         console.log('🤖 Telegram Bot started in POLLING mode!');
         console.log('   Send /start to your bot to begin');
@@ -304,5 +335,21 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_TOKEN !== 'your_telegram_bot_token_here')
   console.log('   2. Create a new bot with /newbot');
   console.log('   3. Copy the token to your .env file');
 }
+
+// ── Graceful shutdown ──────────────────────────────────────
+function gracefulShutdown(signal) {
+  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+  if (!USE_WEBHOOK && birdBot) {
+    birdBot.getBot().stopPolling();
+  }
+  server.close(() => {
+    console.log('👋 Server closed. Goodbye!');
+    process.exit(0);
+  });
+  // Force exit if graceful takes too long
+  setTimeout(() => process.exit(1), 5000);
+}
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 module.exports = app;

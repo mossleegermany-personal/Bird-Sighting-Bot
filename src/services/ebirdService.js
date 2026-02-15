@@ -1,4 +1,6 @@
 const axios = require('axios');
+const { getTimezoneAbbr } = require('../utils/dateUtils');
+const { esc } = require('../utils/markdown');
 
 class EBirdService {
   constructor(apiKey) {
@@ -10,6 +12,46 @@ class EBirdService {
         'X-eBirdApiToken': this.apiKey
       }
     });
+    
+    // Taxonomy cache — avoids re-downloading the full species list every search
+    this.taxonomyCache = null;
+    this.taxonomyCacheTime = null;
+    this.TAXONOMY_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+  }
+
+  /**
+   * Preload the taxonomy cache at startup so first user search is instant
+   */
+  async preloadTaxonomy() {
+    try {
+      console.log('📚 Preloading eBird taxonomy cache...');
+      const response = await this.client.get('/ref/taxonomy/ebird', {
+        params: { fmt: 'json', cat: 'species' }
+      });
+      this.taxonomyCache = response.data;
+      this.taxonomyCacheTime = Date.now();
+      console.log(`✅ Taxonomy cached: ${this.taxonomyCache.length} species`);
+    } catch (error) {
+      console.error('⚠️  Failed to preload taxonomy (will fetch on first search):', error.message);
+    }
+  }
+
+  /**
+   * Get taxonomy data (from cache or API)
+   * @returns {Promise<Array>} Full species taxonomy
+   */
+  async getTaxonomy() {
+    const now = Date.now();
+    if (this.taxonomyCache && this.taxonomyCacheTime && (now - this.taxonomyCacheTime) < this.TAXONOMY_CACHE_TTL) {
+      return this.taxonomyCache;
+    }
+    // Cache miss or expired — fetch fresh
+    const response = await this.client.get('/ref/taxonomy/ebird', {
+      params: { fmt: 'json', cat: 'species' }
+    });
+    this.taxonomyCache = response.data;
+    this.taxonomyCacheTime = now;
+    return this.taxonomyCache;
   }
 
   /**
@@ -146,18 +188,13 @@ class EBirdService {
    */
   async searchSpeciesByName(query) {
     try {
-      // Use eBird taxonomy API to search for species
-      const response = await this.client.get('/ref/taxonomy/ebird', {
-        params: {
-          fmt: 'json',
-          cat: 'species'
-        }
-      });
+      // Use cached taxonomy to avoid re-downloading the full list every time
+      const taxonomy = await this.getTaxonomy();
       
       const searchLower = query.toLowerCase().trim();
       
       // Filter taxonomy by common name match
-      const matches = response.data.filter(species => {
+      const matches = taxonomy.filter(species => {
         const comName = (species.comName || '').toLowerCase();
         const sciName = (species.sciName || '').toLowerCase();
         return comName.includes(searchLower) || sciName.includes(searchLower);
@@ -391,9 +428,10 @@ class EBirdService {
   /**
    * Format date from yyyy-mm-dd hh:mm to dd/mm/yyyy hh:mm
    * @param {string} dateStr - Date string from eBird API (e.g., "2026-02-06 18:30")
-   * @returns {string} Formatted date string (e.g., "06/02/2026 18:30")
+   * @param {string} [regionCode] - eBird region code for timezone label
+   * @returns {string} Formatted date string (e.g., "06/02/2026 18:30 SGT")
    */
-  formatDate(dateStr) {
+  formatDate(dateStr, regionCode) {
     if (!dateStr) return 'Unknown';
     
     // Split date and time
@@ -404,26 +442,34 @@ class EBirdService {
     // Split date into year, month, day
     const [year, month, day] = datePart.split('-');
     
-    // Return in dd/mm/yyyy format
-    return `${day}/${month}/${year}${timePart ? ' ' + timePart : ''}`;
+    // Return in dd/mm/yyyy format with the searched region's timezone label
+    const tzAbbr = getTimezoneAbbr(regionCode);
+    return `${day}/${month}/${year}${timePart ? ' ' + timePart + ' ' + tzAbbr : ''}`;
   }
 
   /**
    * Format a single observation for display
    * @param {Object} obs - Observation object from eBird API
+   * @param {string} [regionCode] - eBird region code for timezone label
    * @returns {string} Formatted string
    */
-  formatObservation(obs) {
+  formatObservation(obs, regionCode) {
     const mapsLink = `https://maps.google.com/?q=${obs.lat},${obs.lng}`;
-    let formatted = `🐦 *${obs.comName}*\n`;
-    formatted += `   _${obs.sciName}_\n`;
-    formatted += `📍 ${obs.locName}\n`;
+    let formatted = `🐦 *${esc(obs.comName)}*\n`;
+    formatted += `   _${esc(obs.sciName)}_\n`;
+    formatted += `📍 ${esc(obs.locName)}\n`;
     formatted += `🗺️ [📍 View on Google Maps](${mapsLink})\n`;
-    formatted += `📅 ${this.formatDate(obs.obsDt)}\n`;
+    formatted += `📅 ${this.formatDate(obs.obsDt, regionCode)}\n`;
+    
+    // Add eBird species-specific sighting link (deep-links to the species within the checklist)
+    if (obs.subId) {
+      const speciesAnchor = obs.speciesCode ? `#${obs.speciesCode}` : '';
+      formatted += `🔗 [View Sighting on eBird](https://ebird.org/checklist/${obs.subId}${speciesAnchor})\n`;
+    }
     
     // Add reporter name if available
     if (obs.userDisplayName) {
-      formatted += `👤 Reported by: ${obs.userDisplayName}\n`;
+      formatted += `👤 Reported by: ${esc(obs.userDisplayName)}\n`;
     }
     
     return formatted;
@@ -455,9 +501,10 @@ class EBirdService {
    * Format multiple observations for display
    * @param {Array} observations - Array of observation objects
    * @param {string} title - Title for the list
+   * @param {string} [regionCode] - eBird region code for timezone label
    * @returns {string} Formatted string
    */
-  formatObservationsList(observations, title = 'Recent Bird Sightings') {
+  formatObservationsList(observations, title = 'Recent Bird Sightings', regionCode = null) {
     if (!observations || observations.length === 0) {
       return '❌ No observations found for this location.';
     }
@@ -472,7 +519,7 @@ class EBirdService {
     formatted += `📊 Total: ${uniqueObservations.length} observations\n\n`;
 
     uniqueObservations.forEach((obs, index) => {
-      const entry = `${index + 1}. ${this.formatObservation(obs)}\n`;
+      const entry = `${index + 1}. ${this.formatObservation(obs, regionCode)}\n`;
       
       // If adding this entry exceeds ~3500 chars, start a new message
       if (formatted.length + entry.length > 3500) {
