@@ -48,7 +48,9 @@ You can type the full name or region code:
 
       message += `\n💡 *To search a specific location:*\n`;
       message += `Type: \`Location Name, ${esc(userInput)}\`\n`;
-      message += `Example: \`${esc(hotspots[0]?.locName?.split('--')[0]?.trim() || 'Park Name')}, ${esc(userInput)}\``;
+      /* istanbul ignore next -- locName always exists when hotspots[0] exists; button code would crash first */
+      const exampleName = hotspots[0]?.locName?.split('--')[0]?.trim() || 'Park Name';
+      message += `Example: \`${esc(exampleName)}, ${esc(userInput)}\``;
 
       // Create buttons for top 5 hotspots to view sightings
       const buttons = hotspots.slice(0, 5).map((spot) => [{

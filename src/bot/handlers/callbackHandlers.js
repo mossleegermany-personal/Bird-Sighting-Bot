@@ -28,6 +28,11 @@ module.exports = {
     }
 
     // Handle pagination
+    if (data === 'page_info') {
+      // Just acknowledge, don't do anything
+      return;
+    }
+
     if (data.startsWith('page_')) {
       const parts = data.split('_');
       const type = parts[1]; // 'sightings' or 'notable'
@@ -40,11 +45,6 @@ module.exports = {
         // Edit the existing message in place instead of delete+send
         await this.sendPaginatedObservations(chatId, cached.observations, cached.displayName, type, page, messageId, cached.regionCode);
       }
-      return;
-    }
-    
-    if (data === 'page_info') {
-      // Just acknowledge, don't do anything
       return;
     }
 

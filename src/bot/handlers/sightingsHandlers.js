@@ -4,11 +4,14 @@
  */
 const { toRegionCode, getPopularLocations } = require('../../utils/regionCodes');
 const { filterObservationsByDateRange } = require('../../utils/dateUtils');
+const logger = require('../../utils/logger');
 const { esc } = require('../../utils/markdown');
+const sheetsService = require('../../services/sheetsService');
 
 module.exports = {
   async handleSightings(msg, match) {
     const chatId = msg.chat.id;
+    this.userNames.set(chatId, msg.from?.username || msg.from?.first_name || 'unknown');
     const userInput = match[1]?.trim();
 
     if (!userInput) {
@@ -98,7 +101,7 @@ ${getPopularLocations()}`;
         await this.showHotspotSelection(chatId, hotspots, type, regionInput);
       }
     } catch (error) {
-      console.error('Place search error:', error);
+      logger.error('Place search error', { error: error.message, stack: error.stack });
       await this.sendMessage(chatId, 
         `❌ Error searching for locations. Please try again.\n\n💡 You can also search the entire region with just \`${esc(regionInput)}\``
       );
@@ -240,6 +243,7 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
         await this.deleteMsg(chatId, _sightStatus?.message_id);
         
         // Cache the observations with full display name including date
+        /* istanbul ignore next -- dateLabel always has a value from dateFilter?.label || 'Last 14 Days' */
         const fullDisplayName = dateLabel ? `${displayName} (${dateLabel})` : displayName;
         this.observationsCache.set(cacheKey, {
           observations,
@@ -269,6 +273,17 @@ _All sightings from 00:00 to 23:59 of selected date(s)_
     }
 
     const titleSuffix = dateLabel ? ` (${dateLabel})` : '';
+
+    // Log each sighting to Google Sheets
+    sheetsService.logSightings({
+      command: 'sightings',
+      chatId,
+      username: this.userNames.get(chatId) || 'unknown',
+      searchQuery: displayName,
+      regionCode,
+      observations
+    });
+
     await this.sendPaginatedObservations(chatId, observations, `${displayName}${titleSuffix}`, 'sightings', page, null, regionCode);
   }
 };

@@ -5,10 +5,12 @@
 const { toRegionCode } = require('../../utils/regionCodes');
 const { filterObservationsByDateRange } = require('../../utils/dateUtils');
 const { esc } = require('../../utils/markdown');
+const sheetsService = require('../../services/sheetsService');
 
 module.exports = {
   async handleNotable(msg, match) {
     const chatId = msg.chat.id;
+    this.userNames.set(chatId, msg.from?.username || msg.from?.first_name || 'unknown');
     const userInput = match[1]?.trim();
 
     if (!userInput) {
@@ -77,6 +79,7 @@ You can type:
         }
         
         // Cache the observations with full display name including date
+        /* istanbul ignore next -- dateLabel always has a value from dateFilter?.label || 'Last 14 Days' */
         const fullDisplayName = dateLabel ? `${displayName} (${dateLabel})` : displayName;
         this.observationsCache.set(cacheKey, {
           observations,
@@ -107,6 +110,17 @@ You can type:
 
     await this.deleteMsg(chatId, _notableStatus?.message_id);
     const titleSuffix = dateLabel ? ` (${dateLabel})` : '';
+
+    // Log each sighting to Google Sheets
+    sheetsService.logSightings({
+      command: 'notable',
+      chatId,
+      username: this.userNames.get(chatId) || 'unknown',
+      searchQuery: displayName,
+      regionCode,
+      observations
+    });
+
     await this.sendPaginatedObservations(chatId, observations, `${displayName}${titleSuffix}`, 'notable', page, null, regionCode);
   }
 };

@@ -3,10 +3,13 @@
  * Handles /nearby, location sharing, distance picker, and fetching nearby results.
  */
 const { esc } = require('../../utils/markdown');
+const logger = require('../../utils/logger');
+const sheetsService = require('../../services/sheetsService');
 
 module.exports = {
   async handleNearby(msg) {
     const chatId = msg.chat.id;
+    this.userNames.set(chatId, msg.from?.username || msg.from?.first_name || 'unknown');
 
     await this.sendMessage(chatId,
       '📍 *Share your location to find nearby bird sightings!*\n\nAfter sharing, you can choose the search radius.',
@@ -24,6 +27,7 @@ module.exports = {
 
   async handleLocation(msg) {
     const chatId = msg.chat.id;
+    this.userNames.set(chatId, msg.from?.username || msg.from?.first_name || 'unknown');
     const { latitude, longitude } = msg.location;
     const mapsLink = `https://maps.google.com/?q=${latitude},${longitude}`;
 
@@ -71,13 +75,13 @@ module.exports = {
       try {
         observations = await this.ebirdService.getNearbyObservations(latitude, longitude, dist) || [];
       } catch (err) {
-        console.error('Error fetching nearby observations:', err.message);
+        logger.error('Error fetching nearby observations', { error: err.message });
       }
 
       try {
         hotspots = await this.ebirdService.getNearbyHotspots(latitude, longitude, dist) || [];
       } catch (err) {
-        console.error('Error fetching nearby hotspots:', err.message);
+        logger.error('Error fetching nearby hotspots', { error: err.message });
       }
 
       await this.deleteMsg(chatId, _nearbyStatus?.message_id);
@@ -92,6 +96,16 @@ module.exports = {
           displayName: `Your Location (${dist} km)`,
           regionCode: nearbyRegion,
           type: 'nearby'
+        });
+
+        // Log each sighting to Google Sheets
+        sheetsService.logSightings({
+          command: 'nearby',
+          chatId,
+          username: this.userNames.get(chatId) || 'unknown',
+          searchQuery: `Nearby (${dist} km)`,
+          regionCode: nearbyRegion,
+          observations
         });
 
         await this.sendPaginatedObservations(chatId, observations, `Your Location (${dist} km)`, 'nearby', 0, null, nearbyRegion);
@@ -125,7 +139,7 @@ module.exports = {
         }
       });
     } catch (error) {
-      console.error('Nearby sightings error:', error.message, error.stack);
+      logger.error('Nearby sightings error', { error: error.message, stack: error.stack });
       await this.sendMessage(chatId,
         '❌ Could not fetch nearby sightings. Please try again later.',
         {

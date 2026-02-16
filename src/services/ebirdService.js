@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { getTimezoneAbbr } = require('../utils/dateUtils');
 const { esc } = require('../utils/markdown');
+const logger = require('../utils/logger');
 
 class EBirdService {
   constructor(apiKey) {
@@ -24,15 +25,15 @@ class EBirdService {
    */
   async preloadTaxonomy() {
     try {
-      console.log('📚 Preloading eBird taxonomy cache...');
+      logger.info('Preloading eBird taxonomy cache');
       const response = await this.client.get('/ref/taxonomy/ebird', {
         params: { fmt: 'json', cat: 'species' }
       });
       this.taxonomyCache = response.data;
       this.taxonomyCacheTime = Date.now();
-      console.log(`✅ Taxonomy cached: ${this.taxonomyCache.length} species`);
+      logger.info('Taxonomy cached', { species: this.taxonomyCache.length });
     } catch (error) {
-      console.error('⚠️  Failed to preload taxonomy (will fetch on first search):', error.message);
+      logger.warn('Failed to preload taxonomy (will fetch on first search)', { error: error.message });
     }
   }
 
@@ -65,7 +66,7 @@ class EBirdService {
     try {
       // Clean and validate region code
       const cleanRegionCode = regionCode.trim().toUpperCase();
-      console.log(`Fetching observations for region: ${cleanRegionCode}`);
+      logger.debug('Fetching observations', { region: cleanRegionCode });
       
       const response = await this.client.get(`/data/obs/${cleanRegionCode}/recent`, {
         params: {
@@ -75,10 +76,9 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching recent observations:', error.message);
+      logger.error('Error fetching recent observations', { error: error.message, status: error.response?.status });
       if (error.response) {
-        console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data);
+        logger.debug('Response details', { status: error.response.status, data: error.response.data });
       }
       throw error;
     }
@@ -102,7 +102,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching notable observations:', error.message);
+      logger.error('Error fetching notable observations', { error: error.message });
       throw error;
     }
   }
@@ -123,7 +123,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching species observations:', error.message);
+      logger.error('Error fetching species observations', { error: error.message });
       throw error;
     }
   }
@@ -150,7 +150,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching nearby observations:', error.message);
+      logger.error('Error fetching nearby observations', { error: error.message });
       throw error;
     }
   }
@@ -176,7 +176,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching nearby notable observations:', error.message);
+      logger.error('Error fetching nearby notable observations', { error: error.message });
       throw error;
     }
   }
@@ -211,7 +211,7 @@ class EBirdService {
       
       return matches.slice(0, 10); // Return top 10 matches
     } catch (error) {
-      console.error('Error searching species taxonomy:', error.message);
+      logger.error('Error searching species taxonomy', { error: error.message });
       throw error;
     }
   }
@@ -250,7 +250,7 @@ class EBirdService {
         alternatives: matches.slice(1, 5) // Other possible matches
       };
     } catch (error) {
-      console.error('Error fetching observations by species name:', error.message);
+      logger.error('Error fetching observations by species name', { error: error.message });
       throw error;
     }
   }
@@ -265,7 +265,7 @@ class EBirdService {
       const response = await this.client.get(`/ref/hotspot/${regionCode}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching hotspots:', error.message);
+      logger.error('Error fetching hotspots', { error: error.message });
       throw error;
     }
   }
@@ -282,7 +282,7 @@ class EBirdService {
     try {
       const hotspots = await this.getHotspots(regionCode);
       
-      if (!hotspots || hotspots.length === 0) {
+      if (!Array.isArray(hotspots) || hotspots.length === 0) {
         return [];
       }
       
@@ -317,7 +317,9 @@ class EBirdService {
       
       // Score and sort matches
       matches.sort((a, b) => {
+        /* istanbul ignore next -- filter guarantees locName is non-null for all matches */
         const aName = (a.locName || '').toLowerCase();
+        /* istanbul ignore next -- filter guarantees locName is non-null for all matches */
         const bName = (b.locName || '').toLowerCase();
         
         // Exact match scores highest
@@ -346,7 +348,7 @@ class EBirdService {
       
       return matches.slice(0, maxResults);
     } catch (error) {
-      console.error('Error searching hotspots by name:', error.message);
+      logger.error('Error searching hotspots by name', { error: error.message });
       throw error;
     }
   }
@@ -361,7 +363,7 @@ class EBirdService {
     try {
       const hotspots = await this.getHotspots(regionCode);
       
-      if (!hotspots || hotspots.length === 0) {
+      if (!Array.isArray(hotspots) || hotspots.length === 0) {
         return [];
       }
       
@@ -374,7 +376,7 @@ class EBirdService {
       
       return sorted.slice(0, limit);
     } catch (error) {
-      console.error('Error fetching popular hotspots:', error.message);
+      logger.error('Error fetching popular hotspots', { error: error.message });
       throw error;
     }
   }
@@ -388,7 +390,7 @@ class EBirdService {
    */
   async getHotspotObservations(locId, back = 14, maxResults = 100) {
     try {
-      console.log(`Fetching observations for hotspot: ${locId}`);
+      logger.debug('Fetching hotspot observations', { locId });
       const response = await this.client.get(`/data/obs/${locId}/recent`, {
         params: {
           back,
@@ -397,7 +399,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching hotspot observations:', error.message);
+      logger.error('Error fetching hotspot observations', { error: error.message });
       throw error;
     }
   }
@@ -420,7 +422,7 @@ class EBirdService {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching nearby hotspots:', error.message);
+      logger.error('Error fetching nearby hotspots', { error: error.message });
       throw error;
     }
   }
@@ -529,6 +531,7 @@ class EBirdService {
       formatted += entry;
     });
 
+    /* istanbul ignore else -- formatted always has content after forEach */
     if (formatted) {
       messages.push(formatted);
     }

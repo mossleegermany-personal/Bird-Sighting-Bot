@@ -62,8 +62,13 @@ jobs:
           app-settings-json: |
             [
               { "name": "TELEGRAM_BOT_TOKEN", "value": "${{ secrets.TELEGRAM_BOT_TOKEN }}", "slotSetting": false },
-              { "name": "EBIRD_API_KEY", "value": "${{ secrets.EBIRD_API_KEY }}", "slotSetting": false }
+              { "name": "EBIRD_API_KEY", "value": "${{ secrets.EBIRD_API_KEY }}", "slotSetting": false },
+              { "name": "GOOGLE_SHEETS_ID", "value": "${{ secrets.GOOGLE_SHEETS_ID }}", "slotSetting": false },
+              { "name": "GOOGLE_CREDENTIALS_PATH", "value": "/home/site/wwwroot/google-credentials.json", "slotSetting": false }
             ]
+
+      - name: Write Google credentials file
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > google-credentials.json
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp

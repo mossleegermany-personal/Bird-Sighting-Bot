@@ -5,10 +5,13 @@
 const { toRegionCode } = require('../../utils/regionCodes');
 const { filterObservationsByDateRange } = require('../../utils/dateUtils');
 const { esc } = require('../../utils/markdown');
+const logger = require('../../utils/logger');
+const sheetsService = require('../../services/sheetsService');
 
 module.exports = {
   async handleSpecies(msg, match) {
     const chatId = msg.chat.id;
+    this.userNames.set(chatId, msg.from?.username || msg.from?.first_name || 'unknown');
     const input = match[1]?.trim();
 
     if (!input) {
@@ -89,7 +92,7 @@ After finding the species, you can narrow down by location.`
 
       await this.sendMessage(chatId, message);
     } catch (error) {
-      console.error('Species search error:', error);
+      logger.error('Species search error', { error: error.message, stack: error.stack });
       await this.sendMessage(chatId, `❌ Error searching for species. Please try again.`);
     }
   },
@@ -129,7 +132,7 @@ After finding the species, you can narrow down by location.`
         scientificName: species.sciName
       });
     } catch (error) {
-      console.error('Species search error:', error);
+      logger.error('Species search error', { error: error.message, stack: error.stack });
       await this.sendMessage(chatId, `❌ Error searching for species. Please try again.`);
     }
   },
@@ -196,9 +199,19 @@ After finding the species, you can narrow down by location.`
         dateFilter
       });
 
+      // Log each sighting to Google Sheets
+      sheetsService.logSightings({
+        command: 'species',
+        chatId,
+        username: this.userNames.get(chatId) || 'unknown',
+        searchQuery: `${species.commonName} in ${locationInput}`,
+        regionCode,
+        observations
+      });
+
       await this.sendPaginatedObservations(chatId, observations, displayName, 'species', 0, null, regionCode);
     } catch (error) {
-      console.error('Species location search error:', error);
+      logger.error('Species location search error', { error: error.message, stack: error.stack });
       await this.deleteMsg(chatId, _specLocStatus?.message_id);
       await this.sendMessage(chatId,
         `❌ Could not search for species in *${esc(locationInput)}*.\n\nPlease check the location name and try again.`

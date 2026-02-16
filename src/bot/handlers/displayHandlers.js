@@ -2,6 +2,7 @@
  * Display Handlers — pagination, summary, full list, and share formatting.
  */
 const { esc } = require('../../utils/markdown');
+const logger = require('../../utils/logger');
 
 module.exports = {
   async sendPaginatedObservations(chatId, observations, displayName, type, page = 0, messageId = null, regionCode = null) {
@@ -88,7 +89,7 @@ module.exports = {
         });
         return;
       } catch (error) {
-        console.error('Error editing message:', error.message);
+        logger.error('Error editing message', { error: error.message });
         // Fall through to send a new message if edit fails
       }
     }

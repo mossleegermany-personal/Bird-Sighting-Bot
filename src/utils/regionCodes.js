@@ -302,13 +302,6 @@ function toRegionCode(input) {
     return locationToCode[lowerInput];
   }
   
-  // Try partial match - location name contains input
-  for (const [name, code] of Object.entries(locationToCode)) {
-    if (name === lowerInput) {
-      return code;
-    }
-  }
-  
   // Try partial match - input contains location name or location name contains input
   for (const [name, code] of Object.entries(locationToCode)) {
     if (lowerInput.includes(name) || name.includes(lowerInput)) {
@@ -358,5 +351,6 @@ function getPopularLocations() {
 module.exports = {
   toRegionCode,
   getPopularLocations,
+  getLocationName,
   locationToCode
 };
